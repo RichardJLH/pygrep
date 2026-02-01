@@ -14,7 +14,7 @@
     devShells.x86_64-linux.default = pkgs.mkShell {
       buildInputs = with pkgs; [
         uv
-        python312
+        python314
         stdenv.cc.cc.lib
         zlib
       ];

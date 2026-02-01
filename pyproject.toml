@@ -25,3 +25,7 @@ select = ["E", "F", "I", "B"]
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,6 +1,6 @@
 from typing import Any
 
-from pygrep import run_grep
+from pygrep.grepper import run_grep
 
 
 def test_basic_search(tmp_path: Any) -> None:

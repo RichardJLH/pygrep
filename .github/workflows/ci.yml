@@ -1,0 +1,23 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v25
+
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Lint and Format (Ruff)
+        run: nix develop -c ruff check .
+
+      - name: Type Check (Mypy)
+        run: nix develop -c mypy src/
+
+      - name: Run Performance Tests (Pytest)
+        run: nix develop -c uv run pytest --verbose

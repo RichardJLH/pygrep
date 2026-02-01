@@ -1,7 +1,8 @@
+import mmap
+import re
 from typing import Any
 
-from pygrep import grepper
-from pygrep.grepper import run_grep
+from pygrep.grepper import GrepOptions, grep
 
 
 def test_basic_search(tmp_path: Any) -> None:
@@ -10,7 +11,7 @@ def test_basic_search(tmp_path: Any) -> None:
     filepath = tmp_path / "system.txt"
     filepath.write_bytes(b"INFO: Starting session\nERROR: Kernel panic\nDEBUG: End")
 
-    assert [30] == run_grep(str(filepath), "Kernel panic")
+    assert [30] == grep(filepath, re.compile("Kernel panic".encode()))
 
 
 def test_boundary_split(tmp_path: Any) -> None:
@@ -18,8 +19,15 @@ def test_boundary_split(tmp_path: Any) -> None:
 
     filepath = tmp_path / "split.txt"
 
-    prefix = b" " * (grepper.ALLOCATION_SIZE - 1)
-    pattern = "test"
-    filepath.write_bytes(prefix + pattern.encode())
+    prefix = b" " * (mmap.ALLOCATIONGRANULARITY - 1)
+    pattern = b"test"
+    filepath.write_bytes(prefix + pattern)
 
-    assert [len(prefix)] == run_grep(str(filepath), pattern, allocations_per_chunk=1)
+    expected = [len(prefix)]
+    actual = grep(
+        filepath,
+        re.compile(pattern),
+        GrepOptions(chunk_size=mmap.ALLOCATIONGRANULARITY, max_match_length=len(pattern)),
+    )
+
+    assert expected == actual

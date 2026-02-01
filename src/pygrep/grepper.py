@@ -1,57 +1,83 @@
 import os
 import re
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+from functools import partial
 from mmap import ACCESS_READ, ALLOCATIONGRANULARITY, mmap
-from typing import Iterator, List, Optional
+from pathlib import Path
+from typing import Iterator, Optional
 
 
-def get_spans(file_size: int, chunk_size: int, overlap: int) -> Iterator[tuple[int, int]]:
-    """Yields (start, end) tuples aligned with mmap granularity."""
+@dataclass(frozen=True, slots=True)
+class View:
+    start: int
+    end: int
 
-    offset = 0
-    while offset < file_size:
-        end = min(offset + chunk_size + overlap, file_size)
-        yield offset, end
-
-        offset += chunk_size
+    @property
+    def length(self) -> int:
+        return self.end - self.start
 
 
-def search_chunk(file_path: str, pattern: re.Pattern[bytes], start: int, end: int) -> Optional[int]:
+def get_views(size: int, chunk_size: int, overlap: int) -> Iterator[View]:
+    """Yields View with with start and end with an overlap"""
+
+    offsets = range(0, size, chunk_size)
+    spans = (View(start=offset, end=min(offset + chunk_size + overlap, size)) for offset in offsets)
+
+    return spans
+
+
+def search_chunk(filepath: Path, pattern: re.Pattern[bytes], view: View) -> Optional[int]:
     """Searches a chunk for a regex pattern and returns the global file offset."""
 
-    with open(file_path, "rb") as file:
-        with mmap(file.fileno(), length=end - start, offset=start, access=ACCESS_READ) as memory:
+    with open(filepath, "rb") as file:
+        with mmap(
+            fileno=file.fileno(), length=view.length, offset=view.start, access=ACCESS_READ
+        ) as memory:
             match = pattern.search(memory)
-            if match:
-                return start + match.start()
-    return None
+            return view.start + match.start() if match is not None else None
 
 
-DEFAULT_ALLOCATIONS_PER_CHUNK = 2560
-ALLOCATION_SIZE = ALLOCATIONGRANULARITY
+type ByteCount = int
 
 
-def run_grep(
-    file_path: str, query: str, allocations_per_chunk: int = DEFAULT_ALLOCATIONS_PER_CHUNK
-) -> List[int]:
+@dataclass(frozen=True, slots=True)
+class GrepOptions:
+    chunk_size: ByteCount = 2560 * ALLOCATIONGRANULARITY
+    max_match_length: ByteCount = 4096
+
+    def __post_init__(self) -> None:
+        if self.chunk_size < 1 or self.max_match_length < 1:
+            raise ValueError("max_match_length and chunk_size must be positive integers")
+
+        if self.chunk_size % ALLOCATIONGRANULARITY != 0:
+            raise ValueError(
+                f"chunk_size ({self.chunk_size}) must be a multiple of "
+                f"mmap.ALLOCATION_GRANULARITY ({ALLOCATIONGRANULARITY})"
+            )
+
+        if self.max_match_length >= self.chunk_size:
+            raise ValueError("max_match_length must be smaller than chunk_size")
+
+
+DEFAULT_GREP_OPTIONS = GrepOptions()
+
+
+def grep(
+    filepath: Path, pattern: re.Pattern[bytes], options: GrepOptions = DEFAULT_GREP_OPTIONS
+) -> list[int]:
     """Parallelized regex search across a large file."""
 
-    pattern = re.compile(query.encode())
-    size = os.path.getsize(file_path)
+    search_in_file = partial(search_chunk, filepath, pattern)
 
-    overlap = len(query.encode()) - 1
-    chunk_size = allocations_per_chunk * ALLOCATION_SIZE
+    views = get_views(
+        size=os.path.getsize(filepath),
+        chunk_size=options.chunk_size,
+        overlap=options.max_match_length,
+    )
 
-    results = []
     with ProcessPoolExecutor() as executor:
-        futures = [
-            executor.submit(search_chunk, file_path, pattern, s, e)
-            for s, e in get_spans(size, chunk_size, overlap)
-        ]
+        results = executor.map(search_in_file, views)
 
-        for future in futures:
-            res = future.result()
-            if res is not None:
-                results.append(res)
-
-    return sorted(results)
+    offsets = {result for result in results if result is not None}
+    return sorted(offsets)

@@ -1,11 +1,11 @@
 import mmap
 import re
-from typing import Any
+from pathlib import Path
 
 from pygrep.grepper import GrepOptions, grep
 
 
-def test_basic_search(tmp_path: Any) -> None:
+def test_basic_search(tmp_path: Path) -> None:
     """Verify that we can find a simple string as expected."""
 
     filepath = tmp_path / "system.txt"
@@ -14,7 +14,7 @@ def test_basic_search(tmp_path: Any) -> None:
     assert [30] == grep(filepath, re.compile("Kernel panic".encode()))
 
 
-def test_boundary_split(tmp_path: Any) -> None:
+def test_boundary_split(tmp_path: Path) -> None:
     """Force a pattern to split across two chunks to test overlap logic."""
 
     filepath = tmp_path / "split.txt"
@@ -31,3 +31,21 @@ def test_boundary_split(tmp_path: Any) -> None:
     )
 
     assert expected == actual
+
+
+def test_multiple_matches_and_overlap(tmp_path: Path):
+    """Tests that multiple matches in one chunk are all found."""
+
+    filepath = tmp_path / "multiple_matches.txt"
+
+    content = bytearray(b"." * 200)
+
+    content[0:6] = b"needle"
+    content[100:106] = b"needle"
+    content[110:116] = b"needle"
+
+    filepath.write_bytes(content)
+
+    assert [0, 100, 110] == grep(
+        filepath, pattern=re.compile(b"needle"), options=GrepOptions(max_match_length=16)
+    )

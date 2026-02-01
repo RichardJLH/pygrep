@@ -3,9 +3,10 @@ import re
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import partial
+from itertools import chain
 from mmap import ACCESS_READ, ALLOCATIONGRANULARITY, mmap
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,15 +28,14 @@ def get_views(size: int, chunk_size: int, overlap: int) -> Iterator[View]:
     return spans
 
 
-def search_chunk(filepath: Path, pattern: re.Pattern[bytes], view: View) -> Optional[int]:
-    """Searches a chunk for a regex pattern and returns the global file offset."""
+def search_chunk(filepath: Path, pattern: re.Pattern[bytes], view: View) -> list[int]:
+    """Searches a chunk for a regex pattern and returns the global file offsets."""
 
     with open(filepath, "rb") as file:
         with mmap(
             fileno=file.fileno(), length=view.length, offset=view.start, access=ACCESS_READ
         ) as memory:
-            match = pattern.search(memory)
-            return view.start + match.start() if match is not None else None
+            return [view.start + match.start() for match in pattern.finditer(memory)]
 
 
 type ByteCount = int
@@ -79,5 +79,5 @@ def grep(
     with ProcessPoolExecutor() as executor:
         results = executor.map(search_in_file, views)
 
-    offsets = {result for result in results if result is not None}
+    offsets = chain.from_iterable(results)
     return sorted(offsets)

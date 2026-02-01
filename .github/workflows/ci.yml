@@ -2,22 +2,29 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  quality-gate:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Nix
         uses: cachix/install-nix-action@v25
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-      - name: Lint and Format (Ruff)
-        run: nix develop -c ruff check .
+      - name: Install dependencies
+        run: uv sync --frozen
 
-      - name: Type Check (Mypy)
-        run: nix develop -c mypy src/
+      - name: Lint with Ruff
+        run: uv run ruff check .
 
-      - name: Run Performance Tests (Pytest)
-        run: nix develop -c uv run pytest --verbose
+      - name: Type Check with Mypy
+        run: uv run mypy src/
+
+      - name: Run Tests
+        run: uv run pytest
